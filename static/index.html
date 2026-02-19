@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Web Scraper</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #0f1117;
+    color: #e0e0e0;
+    min-height: 100vh;
+    padding: 2rem;
+  }
+
+  h1 { font-size: 1.6rem; font-weight: 600; margin-bottom: 1.5rem; color: #fff; }
+
+  .container { max-width: 900px; margin: 0 auto; }
+
+  /* Input section */
+  .input-section {
+    background: #1a1d27;
+    border: 1px solid #2a2d3a;
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+
+  label { display: block; font-size: 0.85rem; color: #9ca3af; margin-bottom: 0.4rem; }
+
+  textarea {
+    width: 100%;
+    min-height: 120px;
+    background: #12141c;
+    border: 1px solid #2a2d3a;
+    border-radius: 6px;
+    color: #e0e0e0;
+    padding: 0.75rem;
+    font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
+    font-size: 0.85rem;
+    resize: vertical;
+    outline: none;
+  }
+  textarea:focus { border-color: #6366f1; }
+
+  .row { display: flex; gap: 0.75rem; margin-top: 0.75rem; align-items: flex-end; }
+
+  .proxy-field { flex: 1; }
+
+  .proxy-field input {
+    width: 100%;
+    background: #12141c;
+    border: 1px solid #2a2d3a;
+    border-radius: 6px;
+    color: #e0e0e0;
+    padding: 0.55rem 0.75rem;
+    font-size: 0.85rem;
+    outline: none;
+  }
+  .proxy-field input:focus { border-color: #6366f1; }
+
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    padding: 0.55rem 1.25rem;
+    transition: background 0.15s;
+  }
+
+  .btn-primary {
+    background: #6366f1;
+    color: #fff;
+    min-width: 100px;
+  }
+  .btn-primary:hover { background: #5558e6; }
+  .btn-primary:disabled { background: #3f4280; cursor: not-allowed; }
+
+  .btn-secondary {
+    background: #2a2d3a;
+    color: #e0e0e0;
+  }
+  .btn-secondary:hover { background: #353849; }
+
+  /* Loading spinner */
+  .spinner {
+    display: none;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 1rem 0;
+    color: #9ca3af;
+    font-size: 0.85rem;
+  }
+  .spinner.active { display: flex; }
+
+  .spinner-dot {
+    width: 18px; height: 18px;
+    border: 2px solid #6366f1;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Summary bar */
+  .summary {
+    display: none;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+  }
+  .summary.active { display: flex; }
+
+  .summary span {
+    padding: 0.35rem 0.75rem;
+    border-radius: 4px;
+    background: #1a1d27;
+    border: 1px solid #2a2d3a;
+  }
+  .summary .total { color: #93c5fd; }
+  .summary .success { color: #86efac; }
+  .summary .failed { color: #fca5a5; }
+
+  /* Result cards */
+  .results { display: flex; flex-direction: column; gap: 0.75rem; }
+
+  .card {
+    background: #1a1d27;
+    border: 1px solid #2a2d3a;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    user-select: none;
+  }
+  .card-header:hover { background: #1e2130; }
+
+  .card-url {
+    font-family: "SF Mono", "Fira Code", monospace;
+    font-size: 0.82rem;
+    color: #93c5fd;
+    word-break: break-all;
+  }
+
+  .card-status {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 3px;
+    font-weight: 600;
+    flex-shrink: 0;
+    margin-left: 0.75rem;
+  }
+  .card-status.ok { background: #16532d; color: #86efac; }
+  .card-status.err { background: #5c1d1d; color: #fca5a5; }
+
+  .card-body {
+    display: none;
+    padding: 0 1rem 1rem;
+    font-size: 0.82rem;
+    line-height: 1.55;
+  }
+  .card-body.open { display: block; }
+
+  .card-body h3 {
+    font-size: 0.78rem;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 0.75rem 0 0.35rem;
+  }
+  .card-body h3:first-child { margin-top: 0; }
+
+  .card-body p, .card-body ul { color: #d1d5db; }
+  .card-body ul { padding-left: 1.2rem; }
+
+  .text-preview {
+    max-height: 300px;
+    overflow-y: auto;
+    background: #12141c;
+    border-radius: 4px;
+    padding: 0.6rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.8rem;
+    color: #b0b8c8;
+    line-height: 1.6;
+  }
+
+  .paragraph {
+    margin-bottom: 0.6rem;
+    color: #d1d5db;
+    line-height: 1.6;
+  }
+  .paragraph:last-child { margin-bottom: 0; }
+
+  .error-msg { color: #fca5a5; font-style: italic; }
+
+  .meta-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.2rem 0.75rem;
+    font-size: 0.8rem;
+  }
+  .meta-key { color: #9ca3af; }
+
+  .elapsed { color: #6b7280; font-size: 0.75rem; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Web Scraper</h1>
+
+  <div class="input-section">
+    <label for="urls">URLs (one per line)</label>
+    <textarea id="urls" placeholder="https://example.com&#10;https://example.org"></textarea>
+    <div class="row">
+      <div class="proxy-field">
+        <label for="proxy">Proxy (optional)</label>
+        <input id="proxy" type="text" placeholder="http://user:pass@host:port">
+      </div>
+      <button class="btn-primary" id="scrapeBtn" onclick="doScrape()">Scrape</button>
+      <button class="btn-secondary" id="exportBtn" onclick="doExport()" style="display:none">Download JSON</button>
+    </div>
+  </div>
+
+  <div class="spinner" id="spinner">
+    <div class="spinner-dot"></div>
+    <span>Scraping...</span>
+  </div>
+
+  <div class="summary" id="summary">
+    <span class="total">Total: <strong id="sTotal">0</strong></span>
+    <span class="success">OK: <strong id="sOk">0</strong></span>
+    <span class="failed">Failed: <strong id="sFail">0</strong></span>
+  </div>
+
+  <div class="results" id="results"></div>
+</div>
+
+<script>
+let lastResults = null;
+
+async function doScrape() {
+  const textarea = document.getElementById("urls");
+  const urls = textarea.value.split("\n").map(u => u.trim()).filter(Boolean);
+  if (!urls.length) return;
+
+  const proxy = document.getElementById("proxy").value.trim() || null;
+  const btn = document.getElementById("scrapeBtn");
+  const spinner = document.getElementById("spinner");
+  const summary = document.getElementById("summary");
+  const resultsEl = document.getElementById("results");
+
+  btn.disabled = true;
+  spinner.classList.add("active");
+  summary.classList.remove("active");
+  resultsEl.innerHTML = "";
+  document.getElementById("exportBtn").style.display = "none";
+
+  try {
+    const resp = await fetch("/api/scrape", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls, proxy })
+    });
+    const data = await resp.json();
+    lastResults = data;
+    renderResults(data);
+  } catch (e) {
+    resultsEl.innerHTML = `<p class="error-msg">Request failed: ${e.message}</p>`;
+  } finally {
+    btn.disabled = false;
+    spinner.classList.remove("active");
+  }
+}
+
+function renderResults(data) {
+  const summary = document.getElementById("summary");
+  summary.classList.add("active");
+  document.getElementById("sTotal").textContent = data.total;
+  document.getElementById("sOk").textContent = data.successful;
+  document.getElementById("sFail").textContent = data.failed;
+
+  const resultsEl = document.getElementById("results");
+  resultsEl.innerHTML = "";
+
+  if (data.results.length) {
+    document.getElementById("exportBtn").style.display = "";
+  }
+
+  data.results.forEach((r, idx) => {
+    const card = document.createElement("div");
+    card.className = "card";
+
+    const statusCls = r.success ? "ok" : "err";
+    const statusLabel = r.success ? r.status : (r.error || `HTTP ${r.status}`);
+
+    card.innerHTML = `
+      <div class="card-header" onclick="toggleCard(${idx})">
+        <span class="card-url">${esc(r.url)}</span>
+        <span class="card-status ${statusCls}">${esc(String(statusLabel))}</span>
+      </div>
+      <div class="card-body" id="card-${idx}">
+        ${r.success ? renderData(r) : `<p class="error-msg">${esc(r.error || "Unknown error")}</p>`}
+      </div>
+    `;
+    resultsEl.appendChild(card);
+  });
+}
+
+function renderData(r) {
+  const d = r.data;
+  let html = "";
+
+  html += `<h3>Title</h3><p>${esc(d.title || "(none)")}</p>`;
+
+  if (d.meta_description) {
+    html += `<h3>Description</h3><p>${esc(d.meta_description)}</p>`;
+  }
+
+  if (d.headings && Object.keys(d.headings).length) {
+    html += `<h3>Headings</h3><ul>`;
+    for (const [level, items] of Object.entries(d.headings)) {
+      items.forEach(t => { html += `<li><strong>${level}:</strong> ${esc(t)}</li>`; });
+    }
+    html += `</ul>`;
+  }
+
+  if (d.paragraphs && d.paragraphs.length) {
+    html += `<h3>Content (${d.paragraphs.length} paragraphs)</h3><div class="text-preview">`;
+    d.paragraphs.forEach(p => { html += `<div class="paragraph">${esc(p)}</div>`; });
+    html += `</div>`;
+  } else if (d.text_content) {
+    const preview = d.text_content.length > 2000 ? d.text_content.slice(0, 2000) + "..." : d.text_content;
+    html += `<h3>Text Content</h3><div class="text-preview">${esc(preview)}</div>`;
+  }
+
+  const linkCount = d.links ? d.links.length : 0;
+  const imgCount = d.images ? d.images.length : 0;
+  html += `<h3>Stats</h3><p>${linkCount} links, ${imgCount} images</p>`;
+
+  if (d.meta_tags && Object.keys(d.meta_tags).length) {
+    html += `<h3>Meta Tags</h3><div class="meta-grid">`;
+    for (const [k, v] of Object.entries(d.meta_tags)) {
+      html += `<span class="meta-key">${esc(k)}</span><span>${esc(v)}</span>`;
+    }
+    html += `</div>`;
+  }
+
+  if (r.redirect_chain && r.redirect_chain.length) {
+    html += `<h3>Redirects</h3><ul>`;
+    r.redirect_chain.forEach(u => { html += `<li>${esc(u)}</li>`; });
+    html += `</ul>`;
+  }
+
+  html += `<p class="elapsed" style="margin-top:0.5rem">${r.elapsed_ms}ms</p>`;
+  return html;
+}
+
+function toggleCard(idx) {
+  document.getElementById(`card-${idx}`).classList.toggle("open");
+}
+
+function doExport() {
+  if (!lastResults) return;
+  const blob = new Blob([JSON.stringify(lastResults, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "scrape_results.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function esc(s) {
+  const d = document.createElement("div");
+  d.textContent = s;
+  return d.innerHTML;
+}
+</script>
+</body>
+</html>
