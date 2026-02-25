@@ -4,3 +4,7 @@ httpx[http2]
 beautifulsoup4
 lxml
 brotli
+playwright
+openpyxl
+jinja2
+python-multipart

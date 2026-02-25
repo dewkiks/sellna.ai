@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import json
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Comment, Tag
@@ -24,6 +25,8 @@ def extract(html: str, url: str) -> dict:
         "text_content": _get_text(content_soup),
         "links": _get_links(content_soup, url),
         "images": _get_images(content_soup, url),
+        "tables": _get_tables(content_soup),
+        "structured_data": _get_structured_data(soup),
         "meta_tags": _get_all_meta(soup),
     }
 
@@ -32,82 +35,50 @@ def extract(html: str, url: str) -> dict:
 # Main content detection
 # ---------------------------------------------------------------------------
 
-# Elements that are almost never article content
 _JUNK_TAGS = [
     "script", "style", "noscript", "svg", "template",
     "nav", "footer", "header", "aside",
     "iframe", "object", "embed",
 ]
 
-# CSS selectors for common non-content blocks (nav, sidebar, ToC, etc.)
 _JUNK_SELECTORS = [
-    "[role='navigation']",
-    "[role='banner']",
-    "[role='contentinfo']",
-    "[role='complementary']",
-    "[aria-hidden='true']",
-    ".sidebar", "#sidebar",
-    ".nav", ".navbar", ".navigation",
-    ".menu", ".header", ".footer",
-    ".toc", "#toc",                           # Wikipedia table of contents
-    ".mw-jump-link",                           # Wikipedia skip-links
-    "#catlinks",                               # Wikipedia category links
-    "#mw-navigation", "#mw-panel",             # Wikipedia chrome
-    ".navbox", ".navbox-inner",                # Wikipedia navboxes at bottom
-    ".sistersitebox",
-    ".mw-editsection",                         # [edit] links
-    ".reflist", ".references",                 # reference lists
-    ".external", ".mw-authority-control",
-    ".mw-indicators",
-    ".noprint",
-    ".cookie-banner", ".cookie-consent",
-    ".ad", ".ads", ".advertisement",
-    "#comments", ".comments",
+    "[role='navigation']", "[role='banner']", "[role='contentinfo']",
+    "[role='complementary']", "[aria-hidden='true']",
+    ".sidebar", "#sidebar", ".nav", ".navbar", ".navigation",
+    ".menu", ".header", ".footer", ".toc", "#toc",
+    ".mw-jump-link", "#catlinks", "#mw-navigation", "#mw-panel",
+    ".navbox", ".sistersitebox", ".mw-editsection", ".reflist",
+    ".references", ".external", ".mw-authority-control",
+    ".mw-indicators", ".noprint", ".cookie-banner", ".cookie-consent",
+    ".ad", ".ads", ".advertisement", "#comments", ".comments",
 ]
 
-# Candidate selectors for the main content area, tried in order
 _CONTENT_SELECTORS = [
-    "#mw-content-text",          # Wikipedia / MediaWiki
-    "article",
-    "[role='main']",
-    "main",
-    "#content",
-    "#main-content",
-    ".main-content",
-    ".post-content",
-    ".article-content",
-    ".entry-content",
-    ".page-content",
-    "#bodyContent",
+    "#mw-content-text", "article", "[role='main']", "main",
+    "#content", "#main-content", ".main-content", ".post-content",
+    ".article-content", ".entry-content", ".page-content", "#bodyContent",
 ]
 
 
 def _get_content_root(soup: BeautifulSoup) -> BeautifulSoup:
     """Return a cleaned copy of the most likely content subtree."""
-    # Try to find a content container
     root = None
     for sel in _CONTENT_SELECTORS:
         root = soup.select_one(sel)
-        if root:
-            break
+        if root: break
 
-    # Fall back to <body> or the whole soup
     if root is None:
         root = soup.find("body") or soup
 
-    # Clone so we don't mutate the original
     clone = BeautifulSoup(str(root), "lxml")
 
-    # Remove junk tags
     for tag in clone.find_all(_JUNK_TAGS):
         tag.decompose()
 
-    # Remove junk by CSS selector
     for sel in _JUNK_SELECTORS:
         for el in clone.select(sel):
             el.decompose()
 
-    # Remove HTML comments
     for comment in clone.find_all(string=lambda t: isinstance(t, Comment)):
         comment.extract()
 
@@ -135,7 +106,6 @@ def _get_headings(soup: BeautifulSoup) -> dict[str, list[str]]:
     for level in range(1, 7):
         tag_name = f"h{level}"
         found = [_clean(h.get_text()) for h in soup.find_all(tag_name)]
-        # Filter out empty strings
         found = [h for h in found if h]
         if found:
             headings[tag_name] = found
@@ -143,40 +113,30 @@ def _get_headings(soup: BeautifulSoup) -> dict[str, list[str]]:
 
 
 def _get_paragraphs(soup: BeautifulSoup) -> list[str]:
-    """Extract clean paragraph text from <p> tags."""
     paragraphs = []
     for p in soup.find_all("p"):
         text = _clean(p.get_text())
-        # Skip very short fragments (likely UI remnants)
         if text and len(text) > 20:
             paragraphs.append(text)
     return paragraphs
 
 
 def _get_text(soup: BeautifulSoup) -> str:
-    """Extract visible text from the content area, paragraph by paragraph.
-
-    Uses block-level elements to insert newlines so the output reads
-    like natural prose instead of a wall of concatenated strings.
-    """
     _BLOCK_TAGS = {
         "p", "div", "section", "article", "blockquote",
         "h1", "h2", "h3", "h4", "h5", "h6",
         "li", "tr", "td", "th", "dt", "dd",
         "pre", "figure", "figcaption", "details", "summary",
     }
-
     parts: list[str] = []
     for element in soup.descendants:
         if isinstance(element, str):
             text = element.strip()
-            if text:
-                parts.append(text)
+            if text: parts.append(text)
         elif isinstance(element, Tag) and element.name in _BLOCK_TAGS:
             parts.append("\n")
 
     raw = " ".join(parts)
-    # Normalize whitespace
     raw = re.sub(r"[ \t]+", " ", raw)
     raw = re.sub(r" ?\n ?", "\n", raw)
     raw = re.sub(r"\n{3,}", "\n\n", raw)
@@ -206,6 +166,32 @@ def _get_images(soup: BeautifulSoup, base_url: str) -> list[dict]:
     return images
 
 
+def _get_tables(soup: BeautifulSoup) -> list[list[list[str]]]:
+    """Extract table data as a 3D list: [table][row][cell]."""
+    tables = []
+    for table in soup.find_all("table"):
+        rows = []
+        for tr in table.find_all("tr"):
+            cells = [_clean(td.get_text()) for td in tr.find_all(["td", "th"])]
+            if any(cells):
+                rows.append(cells)
+        if rows:
+            tables.append(rows)
+    return tables
+
+
+def _get_structured_data(soup: BeautifulSoup) -> list[dict]:
+    """Extract JSON-LD structured data."""
+    results = []
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string)
+            if data: results.append(data)
+        except:
+            continue
+    return results
+
+
 def _get_all_meta(soup: BeautifulSoup) -> dict[str, str]:
     meta = {}
     for tag in soup.find_all("meta"):
@@ -220,13 +206,8 @@ def _get_all_meta(soup: BeautifulSoup) -> dict[str, str]:
 # Text cleaning
 # ---------------------------------------------------------------------------
 
-_MULTI_WHITESPACE = re.compile(r"[ \t]+")
-_MULTI_NEWLINE = re.compile(r"\n{3,}")
-
-
 def _clean(text: str) -> str:
-    """Strip, collapse whitespace, normalize unicode."""
     text = text.strip()
-    text = _MULTI_WHITESPACE.sub(" ", text)
-    text = _MULTI_NEWLINE.sub("\n\n", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
     return text
